@@ -1,0 +1,13 @@
+app = "p45"  
+primary_region = "waw" # або "fra", "ams"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[[services]]
+  internal_port = 9000
+  protocol = "udp"
+
+  [[services.ports]]
+    port = 9000
+    # handlers = []   # для UDP не потрібні
