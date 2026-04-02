@@ -5,7 +5,8 @@ WORKDIR /src
 # Копіюємо всі файли проєкту
 COPY . .
 
-# Публікуємо проєкт (назва DLL буде ServerFly.dll)
+# Важливо: спочатку restore, потім publish
+RUN dotnet restore
 RUN dotnet publish -c Release -o /app/publish --no-self-contained
 
 # === Runtime Stage ===
@@ -16,5 +17,5 @@ COPY --from=build /app/publish .
 
 EXPOSE 9000/udp
 
-# Запускаємо саме ServerFly.dll
+# Назва DLL = назва проєкту = ServerFly.dll
 ENTRYPOINT ["dotnet", "ServerFly.dll"]
