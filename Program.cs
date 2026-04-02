@@ -2,8 +2,9 @@ using System.Collections.Concurrent;
 using System.Net.WebSockets;
 using System.Text;
 
-var builder = WebApplication.CreateBuilder(args);
+Console.WriteLine("Запуск WebSocket сервера на Fly.io...");
 
+var builder = WebApplication.CreateBuilder(args);
 builder.WebHost.UseUrls("http://0.0.0.0:8080");
 
 var app = builder.Build();
@@ -21,38 +22,39 @@ app.Map("/ws", async context =>
 {
     if (context.WebSockets.IsWebSocketRequest)
     {
-        var ws = await context.WebSockets.AcceptWebSocketAsync();
+        using var ws = await context.WebSockets.AcceptWebSocketAsync();
         clientCounter++;
         var clientId = $"Клієнт #{clientCounter}";
 
-        Console.WriteLine($"✅ {clientId} підключився (WebSocket)");
+        Console.WriteLine($"✅ {clientId} підключився");
 
         clients.TryAdd(clientId, ws);
 
-        // надсилаємо історію повідомлень новому клієнту
         await SendHistoryAsync(ws);
-
-        await HandleClientAsync(clientId, ws);
+        await HandleClient(ws, clientId);
     }
     else
     {
-        context.Response.StatusCode = StatusCodes.Status400BadRequest;
+        context.Response.StatusCode = 400;
     }
 });
 
-// Health check для Fly (обов'язково)
-app.MapGet("/", () => "WebSocket Chat Server running on Fly.io\nConnect to /ws");
+app.MapGet("/", () => "WebSocket Chat Server running.\nПідключайся по wss://p45.fly.dev/ws");
 
-// головний цикл обробки клієнта
-async Task HandleClientAsync(string clientId, WebSocket webSocket)
+await app.RunAsync();
+
+
+// ==================== Методи ====================
+
+async Task HandleClient(WebSocket ws, string clientId)
 {
-    var buffer = new byte[1024 * 4];
+    var buffer = new byte[4096];
 
     try
     {
-        while (webSocket.State == WebSocketState.Open)
+        while (ws.State == WebSocketState.Open)
         {
-            var result = await webSocket.ReceiveAsync(new ArraySegment<byte>(buffer), CancellationToken.None);
+            var result = await ws.ReceiveAsync(new ArraySegment<byte>(buffer), CancellationToken.None);
 
             if (result.MessageType == WebSocketMessageType.Close)
                 break;
@@ -60,8 +62,7 @@ async Task HandleClientAsync(string clientId, WebSocket webSocket)
             var message = Encoding.UTF8.GetString(buffer, 0, result.Count).Trim();
 
             if (string.IsNullOrWhiteSpace(message)) continue;
-
-            if (message.Equals("off", StringComparison.OrdinalIgnoreCase) ||
+            if (message.Equals("off", StringComparison.OrdinalIgnoreCase) || 
                 message.Equals("exit", StringComparison.OrdinalIgnoreCase))
                 break;
 
@@ -69,7 +70,7 @@ async Task HandleClientAsync(string clientId, WebSocket webSocket)
             Console.WriteLine(formatted);
             messageHistory.Add(formatted);
 
-            await BroadcastAsync(formatted, clientId);
+            await Broadcast(formatted, clientId);
         }
     }
     catch (Exception ex)
@@ -79,10 +80,9 @@ async Task HandleClientAsync(string clientId, WebSocket webSocket)
     finally
     {
         clients.TryRemove(clientId, out _);
-        if (webSocket.State != WebSocketState.Closed && webSocket.State != WebSocketState.Aborted)
-        {
-            await webSocket.CloseAsync(WebSocketCloseStatus.NormalClosure, "Закрито", CancellationToken.None);
-        }
+        if (ws.State != WebSocketState.Closed && ws.State != WebSocketState.Aborted)
+            await ws.CloseAsync(WebSocketCloseStatus.NormalClosure, "", CancellationToken.None);
+
         Console.WriteLine($"❌ {clientId} відключився");
     }
 }
@@ -96,11 +96,11 @@ async Task SendHistoryAsync(WebSocket ws)
     await ws.SendAsync(new ArraySegment<byte>(data), WebSocketMessageType.Text, true, CancellationToken.None);
 }
 
-async Task BroadcastAsync(string message, string excludeId)
+async Task Broadcast(string message, string excludeId)
 {
     var data = Encoding.UTF8.GetBytes(message);
 
-    foreach (var (id, client) in clients)
+    foreach (var (id, client) in clients.ToList())
     {
         if (id == excludeId || client.State != WebSocketState.Open) continue;
 
@@ -114,5 +114,3 @@ async Task BroadcastAsync(string message, string excludeId)
         }
     }
 }
-
-app.Run();
