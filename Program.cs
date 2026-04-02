@@ -23,22 +23,24 @@ class UdpChatServer
     }
 
     private async Task InitializeServerAsync()
+{
+    while (true)
     {
-        while (true)
+        try
         {
-            try
-            {
-                server = new UdpClient(port);
-                Console.WriteLine($"сервер запущено на порту {port}.");
-                break;
-            }
-            catch (SocketException)
-            {
-                Console.WriteLine("не вдалося запустити сервер. очікування повторного підключення...");
-                await Task.Delay(1000);
-            }
+            // !!!!!!!!!!!!!!!!!!!!!!
+            server = new UdpClient(new IPEndPoint(IPAddress.Parse("fly-global-services"), port));
+            
+            Console.WriteLine($"сервер запущено на порту {port} (fly-global-services).");
+            break;
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"не вдалося запустити сервер: {ex.Message}. очікування...");
+            await Task.Delay(1000);
         }
     }
+}
 
     private async Task ReceiveMessagesAsync()
     {
