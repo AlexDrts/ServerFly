@@ -1,27 +1,27 @@
-# ------------------- Stage 1: Build -------------------
+# ------------------- Build Stage -------------------
 FROM mcr.microsoft.com/dotnet/sdk:9.0 AS build
 WORKDIR /src
 
-# Копіюємо тільки проектний файл спочатку (для кращого кешування)
-COPY *.csproj .
+# Якщо є .csproj — копіюємо його
+COPY *.csproj ./
 RUN dotnet restore
 
-# Копіюємо весь код і публікуємо
+# Копіюємо весь код
 COPY . .
+
+# Публікуємо в framework-dependent режимі (менший розмір)
 RUN dotnet publish -c Release -o /app/publish \
     --no-restore \
-    --self-contained false \
-    -p:PublishSingleFile=false
+    --self-contained false
 
-# ------------------- Stage 2: Runtime -------------------
+# ------------------- Runtime Stage -------------------
 FROM mcr.microsoft.com/dotnet/runtime:9.0 AS runtime
 WORKDIR /app
 
-# Копіюємо опублікований додаток
 COPY --from=build /app/publish .
 
-# Важливо для UDP на Fly.io
+# Важливо для UDP
 EXPOSE 9000/udp
 
-# Запускаємо сервер
+# Запуск (Fly.io запускає саме так)
 ENTRYPOINT ["dotnet", "UdpChatServer.dll"]
