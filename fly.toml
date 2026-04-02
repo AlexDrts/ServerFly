@@ -1,16 +1,12 @@
 app = 'p45'
-primary_region = 'waw'          # найближче до України (можна fra або ams)
+primary_region = 'waw'
 
 [build]
   dockerfile = "Dockerfile"
 
-# UDP сервіс — обов'язково
 [[services]]
   internal_port = 9000
   protocol = "udp"
 
   [[services.ports]]
-    port = 9000                 # для UDP порт внутрішній = зовнішній
-
-# Видаляємо все, що стосується HTTP
-# (http_service, force_https, auto_stop_machines тощо)
+    port = 9000
