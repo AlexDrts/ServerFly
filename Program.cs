@@ -16,7 +16,7 @@ var clients = new ConcurrentDictionary<string, WebSocket>();
 var messageHistory = new List<string>();
 int clientCounter = 0;
 
-Console.WriteLine("🚀 WebSocket сервер запущено на порту 8080");
+Console.WriteLine("Сервер запущено на порту 8080");
 
 app.Map("/ws", async context =>
 {
@@ -26,7 +26,7 @@ app.Map("/ws", async context =>
         clientCounter++;
         var clientId = $"Клієнт #{clientCounter}";
 
-        Console.WriteLine($"✅ {clientId} підключився");
+        Console.WriteLine($"{clientId} підключився");
 
         clients.TryAdd(clientId, ws);
         await SendHistoryAsync(ws);
@@ -38,11 +38,9 @@ app.Map("/ws", async context =>
     }
 });
 
-app.MapGet("/", () => "WebSocket Chat Server (Fly.io)\nПідключайся: wss://p45.fly.dev/ws");
+app.MapGet("/", () => "Chat Server (Fly.io)\nПідключайтесь: wss://p45.fly.dev/ws");
 
 await app.RunAsync();
-
-// ====================== Методи ======================
 
 async Task HandleClientAsync(WebSocket ws, string clientId)
 {
@@ -80,7 +78,7 @@ async Task HandleClientAsync(WebSocket ws, string clientId)
         if (ws.State != WebSocketState.Closed && ws.State != WebSocketState.Aborted)
             await ws.CloseAsync(WebSocketCloseStatus.NormalClosure, "Закрито", CancellationToken.None);
 
-        Console.WriteLine($"❌ {clientId} відключився");
+        Console.WriteLine($"{clientId} відключився");
     }
 }
 
