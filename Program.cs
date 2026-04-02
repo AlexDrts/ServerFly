@@ -1,100 +1,118 @@
 using System.Collections.Concurrent;
-using System.Net;
-using System.Net.Sockets;
+using System.Net.WebSockets;
 using System.Text;
 
-class TcpChatServer
+var builder = WebApplication.CreateBuilder(args);
+
+builder.WebHost.UseUrls("http://0.0.0.0:8080");
+
+var app = builder.Build();
+
+app.UseWebSockets(new WebSocketOptions
 {
-    private const int port = 9000;
-    private TcpListener? listener;
-    private ConcurrentDictionary<string, TcpClient> clients = new();
-    private StringBuilder messageHistory = new();
-    private int clientCounter = 0;
+    KeepAliveInterval = TimeSpan.FromSeconds(30)
+});
 
-    public async Task StartAsync()
+var clients = new ConcurrentDictionary<string, WebSocket>();
+var messageHistory = new List<string>();
+int clientCounter = 0;
+
+app.Map("/ws", async context =>
+{
+    if (context.WebSockets.IsWebSocketRequest)
     {
-        Console.OutputEncoding = Encoding.UTF8;
-        Console.Title = "СЕРВЕРНА СТОРОНА (TCP)";
+        var ws = await context.WebSockets.AcceptWebSocketAsync();
+        clientCounter++;
+        var clientId = $"Клієнт #{clientCounter}";
 
-        listener = new TcpListener(IPAddress.Any, port);
-        listener.Start();
-        Console.WriteLine($"Сервер запущено на порту {port}.");
+        Console.WriteLine($"✅ {clientId} підключився (WebSocket)");
 
-        while (true)
+        clients.TryAdd(clientId, ws);
+
+        // надсилаємо історію повідомлень новому клієнту
+        await SendHistoryAsync(ws);
+
+        await HandleClientAsync(clientId, ws);
+    }
+    else
+    {
+        context.Response.StatusCode = StatusCodes.Status400BadRequest;
+    }
+});
+
+// Health check для Fly (обов'язково)
+app.MapGet("/", () => "WebSocket Chat Server running on Fly.io\nConnect to /ws");
+
+// головний цикл обробки клієнта
+async Task HandleClientAsync(string clientId, WebSocket webSocket)
+{
+    var buffer = new byte[1024 * 4];
+
+    try
+    {
+        while (webSocket.State == WebSocketState.Open)
         {
-            var tcpClient = await listener.AcceptTcpClientAsync();
-            _ = Task.Run(() => HandleClientAsync(tcpClient));
+            var result = await webSocket.ReceiveAsync(new ArraySegment<byte>(buffer), CancellationToken.None);
+
+            if (result.MessageType == WebSocketMessageType.Close)
+                break;
+
+            var message = Encoding.UTF8.GetString(buffer, 0, result.Count).Trim();
+
+            if (string.IsNullOrWhiteSpace(message)) continue;
+
+            if (message.Equals("off", StringComparison.OrdinalIgnoreCase) ||
+                message.Equals("exit", StringComparison.OrdinalIgnoreCase))
+                break;
+
+            var formatted = $"{clientId}: {message}";
+            Console.WriteLine(formatted);
+            messageHistory.Add(formatted);
+
+            await BroadcastAsync(formatted, clientId);
         }
     }
-
-    private async Task HandleClientAsync(TcpClient tcpClient)
+    catch (Exception ex)
     {
-        var endpoint = tcpClient.Client.RemoteEndPoint?.ToString() ?? "невідомий";
-        clientCounter++;
-        var clientId = $"Клієнт #{clientCounter} ({endpoint})";
-        clients[endpoint] = tcpClient;
+        Console.WriteLine($"Помилка з {clientId}: {ex.Message}");
+    }
+    finally
+    {
+        clients.TryRemove(clientId, out _);
+        if (webSocket.State != WebSocketState.Closed && webSocket.State != WebSocketState.Aborted)
+        {
+            await webSocket.CloseAsync(WebSocketCloseStatus.NormalClosure, "Закрито", CancellationToken.None);
+        }
+        Console.WriteLine($"❌ {clientId} відключився");
+    }
+}
 
-        Console.WriteLine($"\nклієнт підключився: {clientId}");
-        await SendHistoryAsync(tcpClient);
+async Task SendHistoryAsync(WebSocket ws)
+{
+    if (messageHistory.Count == 0) return;
 
-        var stream = tcpClient.GetStream();
-        var buffer = new byte[4096];
+    var history = string.Join("\n", messageHistory);
+    var data = Encoding.UTF8.GetBytes(history);
+    await ws.SendAsync(new ArraySegment<byte>(data), WebSocketMessageType.Text, true, CancellationToken.None);
+}
+
+async Task BroadcastAsync(string message, string excludeId)
+{
+    var data = Encoding.UTF8.GetBytes(message);
+
+    foreach (var (id, client) in clients)
+    {
+        if (id == excludeId || client.State != WebSocketState.Open) continue;
 
         try
         {
-            while (true)
-            {
-                var bytesRead = await stream.ReadAsync(buffer);
-                if (bytesRead == 0) break; // клієнт відключився
-
-                var message = Encoding.UTF8.GetString(buffer, 0, bytesRead).Trim();
-
-                if (message == "off" || message == "exit" || message == "quit")
-                    break;
-
-                var formattedMessage = $"\n{endpoint}: {message}";
-                Console.WriteLine(formattedMessage);
-                messageHistory.AppendLine(formattedMessage);
-                await BroadcastMessageAsync(formattedMessage, endpoint);
-            }
+            await client.SendAsync(new ArraySegment<byte>(data), WebSocketMessageType.Text, true, CancellationToken.None);
         }
-        catch (Exception ex)
+        catch
         {
-            Console.WriteLine($"\nпомилка з клієнтом {endpoint}: {ex.Message}");
-        }
-        finally
-        {
-            clients.TryRemove(endpoint, out _);
-            tcpClient.Close();
-            Console.WriteLine($"\nклієнт від'єднався: {clientId}");
+            clients.TryRemove(id, out _);
         }
     }
-
-    private async Task SendHistoryAsync(TcpClient tcpClient)
-    {
-        var history = messageHistory.ToString();
-        if (string.IsNullOrEmpty(history)) return;
-
-        var data = Encoding.UTF8.GetBytes(history);
-        await tcpClient.GetStream().WriteAsync(data);
-    }
-
-    private async Task BroadcastMessageAsync(string message, string excludeEndpoint)
-    {
-        var data = Encoding.UTF8.GetBytes(message);
-        foreach (var (endpoint, client) in clients)
-        {
-            if (endpoint == excludeEndpoint) continue;
-            try
-            {
-                await client.GetStream().WriteAsync(data);
-            }
-            catch
-            {
-                clients.TryRemove(endpoint, out _);
-            }
-        }
-    }
-
-    static async Task Main() => await new TcpChatServer().StartAsync();
 }
+
+app.Run();
