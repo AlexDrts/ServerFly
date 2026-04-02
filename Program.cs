@@ -1,101 +1,100 @@
-﻿using System.Collections.Concurrent;
+using System.Collections.Concurrent;
 using System.Net;
 using System.Net.Sockets;
 using System.Text;
 
-class UdpChatServer
+class TcpChatServer
 {
     private const int port = 9000;
-    private UdpClient? server;
-    private ConcurrentDictionary<IPEndPoint, bool> clients = new();
+    private TcpListener? listener;
+    private ConcurrentDictionary<string, TcpClient> clients = new();
     private StringBuilder messageHistory = new();
     private int clientCounter = 0;
 
     public async Task StartAsync()
     {
         Console.OutputEncoding = Encoding.UTF8;
-        Console.Title = "СЕРВЕРНА СТОРОНА";
-        await InitializeServerAsync();
+        Console.Title = "СЕРВЕРНА СТОРОНА (TCP)";
 
-        _ = Task.Run(ReceiveMessagesAsync);
-        // await HandleConsoleInputAsync();
-        Thread.Sleep(int.MaxValue);
-    }
+        listener = new TcpListener(IPAddress.Any, port);
+        listener.Start();
+        Console.WriteLine($"Сервер запущено на порту {port}.");
 
-    private async Task InitializeServerAsync()
-    {
         while (true)
         {
-            try
-            {
-                server = new UdpClient(new IPEndPoint(IPAddress.Any, port)); 
-                Console.WriteLine($"Сервер запущено на порту {port}.");
-                break;
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"Помилка: {ex.Message}. Очікування...");
-                await Task.Delay(1000);
-            }
+            var tcpClient = await listener.AcceptTcpClientAsync();
+            _ = Task.Run(() => HandleClientAsync(tcpClient));
         }
     }
 
-    private async Task ReceiveMessagesAsync()
+    private async Task HandleClientAsync(TcpClient tcpClient)
     {
-        while (true)
+        var endpoint = tcpClient.Client.RemoteEndPoint?.ToString() ?? "невідомий";
+        clientCounter++;
+        var clientId = $"Клієнт #{clientCounter} ({endpoint})";
+        clients[endpoint] = tcpClient;
+
+        Console.WriteLine($"\nклієнт підключився: {clientId}");
+        await SendHistoryAsync(tcpClient);
+
+        var stream = tcpClient.GetStream();
+        var buffer = new byte[4096];
+
+        try
         {
-            var result = await server!.ReceiveAsync();
-            var message = Encoding.UTF8.GetString(result.Buffer);
-
-            if (!clients.ContainsKey(result.RemoteEndPoint))
+            while (true)
             {
-                clients[result.RemoteEndPoint] = true;
-                clientCounter++;
-                await SendHistoryAsync(result.RemoteEndPoint);
-                Console.WriteLine($"\nклієнт підключився: {result.RemoteEndPoint} (Клієнт #{clientCounter})");
-            }
+                var bytesRead = await stream.ReadAsync(buffer);
+                if (bytesRead == 0) break; // клієнт відключився
 
-            if (message == "off" || message == "exit" || message == "quit")
-            {
-                clients.TryRemove(result.RemoteEndPoint, out _);
-                Console.WriteLine($"\nклієнт від'єднався: {result.RemoteEndPoint}");
-                continue;
-            }
+                var message = Encoding.UTF8.GetString(buffer, 0, bytesRead).Trim();
 
-            var formattedMessage = $"\n{result.RemoteEndPoint}: {message}";
-            Console.WriteLine(formattedMessage);
-            messageHistory.AppendLine(formattedMessage);
-            await BroadcastMessageAsync(formattedMessage, result.RemoteEndPoint);
+                if (message == "off" || message == "exit" || message == "quit")
+                    break;
+
+                var formattedMessage = $"\n{endpoint}: {message}";
+                Console.WriteLine(formattedMessage);
+                messageHistory.AppendLine(formattedMessage);
+                await BroadcastMessageAsync(formattedMessage, endpoint);
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"\nпомилка з клієнтом {endpoint}: {ex.Message}");
+        }
+        finally
+        {
+            clients.TryRemove(endpoint, out _);
+            tcpClient.Close();
+            Console.WriteLine($"\nклієнт від'єднався: {clientId}");
         }
     }
 
-    private async Task SendHistoryAsync(IPEndPoint client)
+    private async Task SendHistoryAsync(TcpClient tcpClient)
     {
-        var history = Encoding.UTF8.GetBytes(messageHistory.ToString());
-        await server!.SendAsync(history, history.Length, client);
+        var history = messageHistory.ToString();
+        if (string.IsNullOrEmpty(history)) return;
+
+        var data = Encoding.UTF8.GetBytes(history);
+        await tcpClient.GetStream().WriteAsync(data);
     }
 
-    private async Task BroadcastMessageAsync(string message, IPEndPoint? excludeClient = null)
+    private async Task BroadcastMessageAsync(string message, string excludeEndpoint)
     {
         var data = Encoding.UTF8.GetBytes(message);
-        foreach (var client in clients.Keys) // розсилати повідомлення всім клієнтам, крім того, хто його надіслав
+        foreach (var (endpoint, client) in clients)
         {
-            if (!client.Equals(excludeClient))
-                await server!.SendAsync(data, data.Length, client);
+            if (endpoint == excludeEndpoint) continue;
+            try
+            {
+                await client.GetStream().WriteAsync(data);
+            }
+            catch
+            {
+                clients.TryRemove(endpoint, out _);
+            }
         }
     }
 
-    private async Task HandleConsoleInputAsync()
-    {
-        while (true)
-        {
-            Console.Write("надішліть повідомлення клієнтам: ");
-            var input = Console.ReadLine();
-            var formattedMessage = $"\nСервер: {input}";
-            messageHistory.AppendLine(formattedMessage);
-            await BroadcastMessageAsync(formattedMessage);
-        }
-    }
-
-    static async Task Main() => await new UdpChatServer().StartAsync();
+    static async Task Main() => await new TcpChatServer().StartAsync();
 }
