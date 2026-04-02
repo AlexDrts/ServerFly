@@ -1,12 +1,6 @@
 using System.Collections.Concurrent;
 using System.Net.WebSockets;
 using System.Text;
-using Microsoft.AspNetCore.Builder;
-using Microsoft.AspNetCore.Hosting;
-using Microsoft.AspNetCore.Http;
-using Microsoft.Extensions.Hosting;
-
-Console.WriteLine("Запуск WebSocket чату на Fly.io (консольний режим)...");
 
 var builder = WebApplication.CreateBuilder(args);
 builder.WebHost.UseUrls("http://0.0.0.0:8080");
@@ -22,6 +16,8 @@ var clients = new ConcurrentDictionary<string, WebSocket>();
 var messageHistory = new List<string>();
 int clientCounter = 0;
 
+Console.WriteLine("🚀 WebSocket сервер запущено на порту 8080");
+
 app.Map("/ws", async context =>
 {
     if (context.WebSockets.IsWebSocketRequest)
@@ -33,22 +29,20 @@ app.Map("/ws", async context =>
         Console.WriteLine($"✅ {clientId} підключився");
 
         clients.TryAdd(clientId, ws);
-
         await SendHistoryAsync(ws);
         await HandleClientAsync(ws, clientId);
     }
     else
     {
         context.Response.StatusCode = 400;
-        await context.Response.WriteAsync("Це WebSocket endpoint. Підключайся через wss://");
     }
 });
 
-app.MapGet("/", () => "WebSocket Chat Server is running on Fly.io\nПідключайся: wss://p45.fly.dev/ws");
+app.MapGet("/", () => "WebSocket Chat Server (Fly.io)\nПідключайся: wss://p45.fly.dev/ws");
 
 await app.RunAsync();
 
-// ====================== Допоміжні методи ======================
+// ====================== Методи ======================
 
 async Task HandleClientAsync(WebSocket ws, string clientId)
 {
@@ -60,20 +54,20 @@ async Task HandleClientAsync(WebSocket ws, string clientId)
         {
             var result = await ws.ReceiveAsync(new ArraySegment<byte>(buffer), CancellationToken.None);
 
-            if (result.MessageType == WebSocketMessageType.Close)
-                break;
+            if (result.MessageType == WebSocketMessageType.Close) break;
 
             var message = Encoding.UTF8.GetString(buffer, 0, result.Count).Trim();
 
             if (string.IsNullOrWhiteSpace(message)) continue;
-            if (message.Equals("off", StringComparison.OrdinalIgnoreCase) || message.Equals("exit", StringComparison.OrdinalIgnoreCase))
+            if (message.Equals("off", StringComparison.OrdinalIgnoreCase) || 
+                message.Equals("exit", StringComparison.OrdinalIgnoreCase))
                 break;
 
-            var formattedMessage = $"{clientId}: {message}";
-            Console.WriteLine(formattedMessage);
-            messageHistory.Add(formattedMessage);
+            var formatted = $"{clientId}: {message}";
+            Console.WriteLine(formatted);
+            messageHistory.Add(formatted);
 
-            await BroadcastMessageAsync(formattedMessage, clientId);
+            await BroadcastMessageAsync(formatted, clientId);
         }
     }
     catch (Exception ex)
@@ -84,9 +78,8 @@ async Task HandleClientAsync(WebSocket ws, string clientId)
     {
         clients.TryRemove(clientId, out _);
         if (ws.State != WebSocketState.Closed && ws.State != WebSocketState.Aborted)
-        {
-            await ws.CloseAsync(WebSocketCloseStatus.NormalClosure, "Клієнт від'єднався", CancellationToken.None);
-        }
+            await ws.CloseAsync(WebSocketCloseStatus.NormalClosure, "Закрито", CancellationToken.None);
+
         Console.WriteLine($"❌ {clientId} відключився");
     }
 }
@@ -100,17 +93,17 @@ async Task SendHistoryAsync(WebSocket ws)
     await ws.SendAsync(new ArraySegment<byte>(data), WebSocketMessageType.Text, true, CancellationToken.None);
 }
 
-async Task BroadcastMessageAsync(string message, string excludeClientId)
+async Task BroadcastMessageAsync(string message, string excludeId)
 {
     var data = Encoding.UTF8.GetBytes(message);
 
-    foreach (var (id, clientWs) in clients)
+    foreach (var (id, client) in clients)
     {
-        if (id == excludeClientId || clientWs.State != WebSocketState.Open) continue;
+        if (id == excludeId || client.State != WebSocketState.Open) continue;
 
         try
         {
-            await clientWs.SendAsync(new ArraySegment<byte>(data), WebSocketMessageType.Text, true, CancellationToken.None);
+            await client.SendAsync(new ArraySegment<byte>(data), WebSocketMessageType.Text, true, CancellationToken.None);
         }
         catch
         {
