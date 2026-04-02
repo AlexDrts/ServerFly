@@ -2,12 +2,12 @@
 FROM mcr.microsoft.com/dotnet/sdk:9.0 AS build
 WORKDIR /src
 
-# Копіюємо код
-COPY UdpChatServer.cs .
+# Копіюємо твій файл (тепер правильно)
+COPY Program.cs .
 
-# Створюємо проєкт і публікуємо
+# Створюємо стандартний консольний проєкт і публікуємо
 RUN dotnet new console --framework net9.0 --force && \
-    mv UdpChatServer.cs Program.cs && \
+    mv Program.cs Program.cs && \          # просто переміщуємо, щоб не було конфліктів
     dotnet publish -c Release -o /app/publish --no-self-contained
 
 # === Runtime Stage ===
@@ -18,4 +18,5 @@ COPY --from=build /app/publish .
 
 EXPOSE 9000/udp
 
-ENTRYPOINT ["dotnet", "UdpChatServer.dll"]
+# Запускаємо саме те, що реально створює publish (зазвичай Program.dll)
+ENTRYPOINT ["dotnet", "Program.dll"]
