@@ -2,13 +2,11 @@
 FROM mcr.microsoft.com/dotnet/sdk:9.0 AS build
 WORKDIR /src
 
-# Копіюємо твій файл (тепер правильно)
-COPY Program.cs .
+# Копіюємо всі файли проєкту
+COPY . .
 
-# Створюємо стандартний консольний проєкт і публікуємо
-RUN dotnet new console --framework net9.0 --force && \
-    mv Program.cs Program.cs && \          # просто переміщуємо, щоб не було конфліктів
-    dotnet publish -c Release -o /app/publish --no-self-contained
+# Публікуємо проєкт (назва DLL буде ServerFly.dll)
+RUN dotnet publish -c Release -o /app/publish --no-self-contained
 
 # === Runtime Stage ===
 FROM mcr.microsoft.com/dotnet/runtime:9.0 AS runtime
@@ -18,5 +16,5 @@ COPY --from=build /app/publish .
 
 EXPOSE 9000/udp
 
-# Запускаємо саме те, що реально створює publish (зазвичай Program.dll)
-ENTRYPOINT ["dotnet", "Program.dll"]
+# Запускаємо саме ServerFly.dll
+ENTRYPOINT ["dotnet", "ServerFly.dll"]
