@@ -69,6 +69,11 @@ async Task HandleClientAsync(WebSocket ws, string clientId)
 
             messageHistory.Add(formatted);
             await BroadcastMessageAsync(formatted, clientId);
+
+            // Підтвердження відправнику що сервер отримав повідомлення
+            var ack = $"[Сервер] Повідомлення отримано: \"{message}\"";
+            var ackData = Encoding.UTF8.GetBytes(ack);
+            await ws.SendAsync(new ArraySegment<byte>(ackData), WebSocketMessageType.Text, true, CancellationToken.None);
         }
     }
     catch (Exception ex)
