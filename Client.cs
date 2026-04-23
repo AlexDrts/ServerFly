@@ -3,8 +3,7 @@ using System.Text;
 
 class WsChatClient
 {
-    // WebSocket - це протокол, який дозволяє встановити двостороннє з'єднання між клієнтом і сервером. Він забезпечує низьку затримку та ефективну передачу даних, що робить його ідеальним для чат-додатків
-    private readonly string _url = "wss://p45.fly.dev/ws";
+    private readonly string _url = "wss://serverfly.onrender.com/ws";
 
     public async Task StartAsync()
     {
