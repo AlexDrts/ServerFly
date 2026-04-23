@@ -16,6 +16,7 @@ var clients = new ConcurrentDictionary<string, WebSocket>();
 var messageHistory = new List<string>();
 int clientCounter = 0;
 
+Console.OutputEncoding = Encoding.UTF8;
 Console.WriteLine("Сервер запущено на порту 8080");
 
 app.Map("/ws", async context =>
@@ -26,7 +27,7 @@ app.Map("/ws", async context =>
         clientCounter++;
         var clientId = $"Клієнт #{clientCounter}";
 
-        Console.WriteLine($"{clientId} підключився");
+        Console.WriteLine($"[+] {clientId} підключився");
 
         clients.TryAdd(clientId, ws);
         await SendHistoryAsync(ws);
@@ -38,7 +39,7 @@ app.Map("/ws", async context =>
     }
 });
 
-app.MapGet("/", () => "Chat Server (Fly.io)\nПідключайтесь: wss://p45.fly.dev/ws");
+app.MapGet("/", () => "Chat Server\nПідключайтесь: wss://<host>/ws");
 
 await app.RunAsync();
 
@@ -57,20 +58,22 @@ async Task HandleClientAsync(WebSocket ws, string clientId)
             var message = Encoding.UTF8.GetString(buffer, 0, result.Count).Trim();
 
             if (string.IsNullOrWhiteSpace(message)) continue;
-            if (message.Equals("off", StringComparison.OrdinalIgnoreCase) || 
+            if (message.Equals("off", StringComparison.OrdinalIgnoreCase) ||
                 message.Equals("exit", StringComparison.OrdinalIgnoreCase))
                 break;
 
             var formatted = $"{clientId}: {message}";
-            Console.WriteLine(formatted);
-            messageHistory.Add(formatted);
 
+            // Вивід повідомлення клієнта на серверній стороні
+            Console.WriteLine($"[MSG] {formatted}");
+
+            messageHistory.Add(formatted);
             await BroadcastMessageAsync(formatted, clientId);
         }
     }
     catch (Exception ex)
     {
-        Console.WriteLine($"Помилка з {clientId}: {ex.Message}");
+        Console.WriteLine($"[ERR] Помилка з {clientId}: {ex.Message}");
     }
     finally
     {
@@ -78,7 +81,7 @@ async Task HandleClientAsync(WebSocket ws, string clientId)
         if (ws.State != WebSocketState.Closed && ws.State != WebSocketState.Aborted)
             await ws.CloseAsync(WebSocketCloseStatus.NormalClosure, "Закрито", CancellationToken.None);
 
-        Console.WriteLine($"{clientId} відключився");
+        Console.WriteLine($"[-] {clientId} відключився");
     }
 }
 
